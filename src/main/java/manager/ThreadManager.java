@@ -387,7 +387,7 @@ public class ThreadManager{
 
 
     /**
-     * 删除就绪列表中的线程
+     * 删除/终止线程
      * @param threadUUID 线程UUID
      * @return 删除成功返回true，否则返回false
      */
