@@ -15,6 +15,8 @@ import java.util.Date;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.Semaphore;
+import java.util.concurrent.locks.Condition;
+import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
 
 import static java.lang.Thread.sleep;
@@ -35,6 +37,8 @@ public class ThreadManager{
     private final Thread watcher;
     // 任务调度器控制器
     private boolean isRunning = true;
+    private final Lock runningLock = new ReentrantLock();
+    private final Condition runningCondition = runningLock.newCondition();
     // 最大同时执行线程数 默认为5
     private final Semaphore availableThreadsSemaphore;
 
@@ -84,14 +88,15 @@ public class ThreadManager{
         // 构造任务调度器线程
         return new Thread(() -> {
             while (true){
-                // 检查当前任务调度器是否启动, 若未启动则进入踏步等待
-                // TODO 此处可以进行优化，通过阻塞式进程进一步降低cpu的占用率
-                if (!isRunning){
+                // 检查当前任务调度器是否启动, 若未启动则进入阻塞等待
+                while (!isRunning){
+                    runningLock.lock();
                     try {
-                        sleep(1000);
-                        continue;
+                        runningCondition.await();
                     } catch (InterruptedException e) {
                         throw new RuntimeException(e);
+                    } finally {
+                        runningLock.unlock();
                     }
                 }
 
@@ -434,11 +439,11 @@ public class ThreadManager{
      * 停止调度器
      */
     public void stopDispatcher(){
-        lock.lock();
+        runningLock.lock();
         try {
             this.isRunning = false;
         } finally {
-            lock.unlock();
+            runningLock.unlock();
         }
     }
 
@@ -447,11 +452,12 @@ public class ThreadManager{
      * 启动调度器
      */
     public void startDispatcher(){
-        lock.lock();
+        runningLock.lock();
         try {
             this.isRunning = true;
+            this.runningCondition.signal();
         } finally {
-            lock.unlock();
+            runningLock.unlock();
         }
     }
 }
