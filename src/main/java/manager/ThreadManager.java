@@ -184,17 +184,18 @@ public class ThreadManager{
      * @param description 线程描述信息
      * @return 添加成功返回true，否则返回false
      */
-    public boolean add(Thread thread, int rank, String threadName, String description){
+    public String add(Thread thread, int rank, String threadName, String description){
         lock.lock();
+        String uuid = UUID.randomUUID().toString();
         try {
             // 检测当前线程对象是否存在于线程队列中
             if (checkThreadIsExist(thread)) {
                 log.info("当前线程已经存在于线程队列中, 无需再次添加!");
-                return false;
+                return null;
             }
             // 创建线程详细信息对象
             ThreadInfo threadInfo = ThreadInfo.builder()
-                    .uuid(UUID.randomUUID().toString())
+                    .uuid(uuid)
                     .name(threadName)
                     .status("ALREADY")
                     .appendTime(new Date())
@@ -207,7 +208,7 @@ public class ThreadManager{
         } finally {
             lock.unlock();
         }
-        return true;
+        return uuid;
     }
 
 
@@ -216,7 +217,7 @@ public class ThreadManager{
      * @param thread 线程实体
      * @return 添加成功返回true，否则返回false
      */
-    public boolean add(Thread thread){
+    public String add(Thread thread){
         return add(thread, 5, "None", "None");
     }
 
