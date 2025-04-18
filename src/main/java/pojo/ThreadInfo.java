@@ -14,6 +14,7 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 
 import java.text.SimpleDateFormat;
+import java.util.ArrayList;
 import java.util.Date;
 
 
@@ -88,5 +89,14 @@ public class ThreadInfo {
                 .startTime(startTime)
                 .status(status)
                 .build();
+    }
+
+
+    /**
+     * 获取线程运行时间
+     * @return 线程运行时间
+     */
+    public long runningTime(){
+        return (startTime.getTime() - new Date().getTime()) / 1000;
     }
 }

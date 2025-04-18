@@ -41,6 +41,10 @@ public class ThreadManager{
     private final Condition runningCondition = runningLock.newCondition();
     // 最大同时执行线程数 默认为5
     private final Semaphore availableThreadsSemaphore;
+    // 线程最大运行时间
+    private final Long maxRunningTime;
+    // 就绪线程列表最大容量
+    private final Integer maxAlreadyThreadCounts;
 
 
     /**
@@ -52,12 +56,17 @@ public class ThreadManager{
         this.availableThreadsSemaphore = new Semaphore(5);
 
         // 构造任务调度线程并启动
-        this.dispatcher = constructDispatcher(5);
+        this.dispatcher = constructDispatcher();
         this.dispatcher.start();
 
         // 构造线程运行状态哨兵并启动
         this.watcher = constructWatcher(500);
         this.watcher.start();
+
+        // 最大运行时间, 默认1小时
+        this.maxRunningTime = 3600L;
+        // 就绪线程列表最大容量 默认100
+        this.maxAlreadyThreadCounts = 100;
     }
 
 
@@ -65,26 +74,31 @@ public class ThreadManager{
      * 构造函数
      * @param maxConcurrentThreads 最大并发线程数
      * @param pollingTime 轮询时间
+     * @param maxRunningTime 线程最大运行时间
+     * @param maxAlreadyThreadCounts 就绪线程列表最大容量
      */
-    public ThreadManager(int maxConcurrentThreads, int pollingTime){
+    public ThreadManager(int maxConcurrentThreads, int pollingTime, long maxRunningTime, int maxAlreadyThreadCounts){
         this.availableThreadsSemaphore = new Semaphore(maxConcurrentThreads);
 
         // 构造任务调度线程并启动
-        this.dispatcher = constructDispatcher(maxConcurrentThreads);
+        this.dispatcher = constructDispatcher();
         this.dispatcher.start();
 
         // 构造线程运行状态哨兵并启动
         this.watcher = constructWatcher(pollingTime);
         this.watcher.start();
+
+        // 最大运行时间, 默认1小时 3600秒
+        this.maxRunningTime = maxRunningTime;
+        this.maxAlreadyThreadCounts = maxAlreadyThreadCounts;
     }
 
 
     /**
      * 构造任务调度器线程
-     * @param maxConcurrentThreads 最大并发线程数
      * @return 任务调度线程
      */
-    private Thread constructDispatcher(int maxConcurrentThreads){
+    private Thread constructDispatcher(){
         // 构造任务调度器线程
         return new Thread(() -> {
             while (true){
@@ -151,9 +165,15 @@ public class ThreadManager{
                 try {
                     List<ThreadInfo> removeList = new ArrayList<>();
                     for (ThreadInfo e : runningThreadList){
-                        // 检查当前线程是否运行结束
-                        if (e != null && !e.getThread().isAlive()){
+                        // 检查当前线程是否运行结束，或是否超时
+                        if (e != null && (!e.getThread().isAlive())){
                             log.debug(e.log());
+                            removeList.add(e);
+                        }
+                        // 如果线程运行超时, 则终止线程并记录日志
+                        else if(e != null && e.runningTime() > maxRunningTime){
+                            e.getThread().interrupt();
+                            log.debug("线程: " + e.getUuid() + " 已超过最大运行时间, 已自动终止!");
                             removeList.add(e);
                         }
                     }
@@ -191,6 +211,11 @@ public class ThreadManager{
             // 检测当前线程对象是否存在于线程队列中
             if (checkThreadIsExist(thread)) {
                 log.info("当前线程已经存在于线程队列中, 无需再次添加!");
+                return null;
+            }
+            // 检查就绪列表是否已满
+            if (alreadyThreadList.size() >= maxAlreadyThreadCounts){
+                log.debug("当前线程就绪列表已满, 无法添加!");
                 return null;
             }
             // 创建线程详细信息对象
@@ -238,6 +263,11 @@ public class ThreadManager{
     }
 
 
+    /**
+     * 根据线程UUID获取运行线程详细信息
+     * @param threadUUID 线程UUID
+     * @return 线程详细信息，若不存在则返回null
+     */
     private ThreadInfo getThreadInfoInRunningList(String threadUUID){
         // 遍历运行态线程列表取得uuid为threadUUID的线程对象
         for (ThreadInfo threadInfo : runningThreadList){
