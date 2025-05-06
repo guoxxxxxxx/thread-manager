@@ -32,9 +32,11 @@ public class ThreadManager{
     // 定义锁, 确保上述列表在操作时线程安全
     private final ReentrantLock lock = new ReentrantLock();
     // 任务调度器
-    private final Thread dispatcher;
+    private Thread dispatcher = null;
     // 线程运行状态哨兵 用于监视运行线程状态信息, 并在线程运行结束后释放资源
-    private final Thread watcher;
+    private Thread watcher = null;
+    // 哨兵轮询时间
+    private int poolingTime;
     // 任务调度器控制器
     private boolean isRunning = true;
     private final Lock runningLock = new ReentrantLock();
@@ -54,15 +56,8 @@ public class ThreadManager{
      */
     public ThreadManager(){
         this.availableThreadsSemaphore = new Semaphore(5);
-
-        // 构造任务调度线程并启动
-        this.dispatcher = constructDispatcher();
-        this.dispatcher.start();
-
-        // 构造线程运行状态哨兵并启动
-        this.watcher = constructWatcher(500);
-        this.watcher.start();
-
+        // 哨兵轮询时间
+        this.poolingTime = 500;
         // 最大运行时间, 默认1小时
         this.maxRunningTime = 3600L;
         // 就绪线程列表最大容量 默认100
@@ -79,18 +74,51 @@ public class ThreadManager{
      */
     public ThreadManager(int maxConcurrentThreads, int pollingTime, long maxRunningTime, int maxAlreadyThreadCounts){
         this.availableThreadsSemaphore = new Semaphore(maxConcurrentThreads);
-
-        // 构造任务调度线程并启动
-        this.dispatcher = constructDispatcher();
-        this.dispatcher.start();
-
-        // 构造线程运行状态哨兵并启动
-        this.watcher = constructWatcher(pollingTime);
-        this.watcher.start();
-
+        // 哨兵轮询时间
+        this.poolingTime = pollingTime;
         // 最大运行时间, 默认1小时 3600秒
         this.maxRunningTime = maxRunningTime;
         this.maxAlreadyThreadCounts = maxAlreadyThreadCounts;
+    }
+
+
+    /**
+     * 运行任务调度器线程和哨兵线程
+     */
+    private void runDispatcherAndWatcher(){
+        if (this.watcher == null){
+            this.watcher = constructWatcher(this.poolingTime);
+            this.watcher.start();
+        }
+        if (this.dispatcher == null) {
+            this.dispatcher = constructDispatcher();
+            this.dispatcher.start();
+        }
+    }
+
+
+    /**
+     * 停止任务调度器线程和哨兵线程
+     */
+    private void stopDispatcherAndWatcher(){
+        lock.lock();
+        try {
+            // 检查当前就绪队列和执行队列是否还有待执行线程或正在执行线程
+            if (this.alreadyThreadList.isEmpty() && this.runningThreadList.isEmpty()){
+                // 终止watcher与dispatcher
+                this.watcher.interrupt();
+                this.dispatcher.interrupt();
+                // 释放内存
+                this.watcher = null;
+                this.dispatcher = null;
+            }
+            else{
+                log.debug("当前仍存在正在运行的线程与就绪线程,对哨兵线程及调度线程不进行操作");
+            }
+        }
+        finally {
+            lock.unlock();
+        }
     }
 
 
@@ -146,7 +174,8 @@ public class ThreadManager{
                         availableThreadsSemaphore.release();
                     }
                 } catch (InterruptedException e) {
-                    throw new RuntimeException(e);
+                    log.debug("Dispatcher线程被中断, 退出线程调度线程...");
+                    break;
                 }
             }
         });
@@ -190,8 +219,11 @@ public class ThreadManager{
                 try {
                     sleep(pollingTime);
                 } catch (InterruptedException e) {
-                    throw new RuntimeException(e);
+                    log.debug("Watcher线程被中断, 退出哨兵线程...");
+                    break;
                 }
+                // 检查是否可以对线程调度线程与线程状态管理线程进行终止
+                stopDispatcherAndWatcher();
             }
         });
     }
@@ -233,6 +265,8 @@ public class ThreadManager{
         } finally {
             lock.unlock();
         }
+        // 创建并运行线程运行状态哨兵线程与调度线程
+        runDispatcherAndWatcher();
         return uuid;
     }
 

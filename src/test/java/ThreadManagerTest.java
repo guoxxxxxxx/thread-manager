@@ -40,7 +40,7 @@ public class ThreadManagerTest {
     @Test
     public void addTest() throws InterruptedException {
         base();
-        sleep(5000);
+        sleep(50000);
     }
 
 
